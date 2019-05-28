@@ -20,6 +20,7 @@ import org.opencv.core.Scalar
 import org.opencv.core.Range
 import org.opencv.core.Core
 import kotlin.collections.ArrayList
+import kotlin.math.roundToInt
 
 class Game @Throws(AWTException::class)
 constructor() {
@@ -40,6 +41,34 @@ constructor() {
     private var current: Square? = null
 
     private var gridStates: Array<ByteArray>? = null
+
+    companion object {
+        private var random = Random()
+        private const val scanSizeRatio = 4
+
+        // Associating Cells with Numbers
+        internal const val Num1: Byte = 0
+        internal const val Num2: Byte = 1
+        internal const val Num3: Byte = 2
+        internal const val Num4: Byte = 3
+        internal const val Num5: Byte = 4
+        internal const val Num6: Byte = 5
+        internal const val Num7: Byte = 6
+        internal const val Num8: Byte = 7
+        internal const val UnOpen: Byte = 8
+        private const val Open_Unknown: Byte = 9
+        internal const val Flag: Byte = 10
+        internal const val Question: Byte = 11
+        internal const val Open: Byte = 12
+
+        private fun angle(ds: DoubleArray, ds2: DoubleArray, ds3: DoubleArray): Double {
+            val dx1 = ds[0] - ds3[0]
+            val dy1 = ds[1] - ds3[1]
+            val dx2 = ds2[0] - ds3[0]
+            val dy2 = ds2[1] - ds3[1]
+            return (dx1 * dx2 + dy1 * dy2) / Math.sqrt((dx1 * dx1 + dy1 * dy1) * (dx2 * dx2 + dy2 * dy2) + 1e-10)
+        }
+    }
 
     init {
         isDailyChallenge = false
@@ -220,7 +249,9 @@ constructor() {
 
         cleaned = cleaned.submat(rangeY, rangeX)
         Imgproc.threshold(cleaned, cleaned, 10.0, 255.0, Imgproc.THRESH_BINARY)
-        Imgcodecs.imwrite("cleaned.png", cleaned);
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0,5.0))
+        Imgproc.morphologyEx(cleaned,cleaned, Imgproc.MORPH_OPEN, kernel,org.opencv.core.Point(-1.0,-1.0),3)
+        Imgcodecs.imwrite("cleaned.png", cleaned)
         var cGap = 0.0
         var rGap = 0.0
         var count = 0
@@ -229,9 +260,14 @@ constructor() {
 
         val data = ByteArray(1)
         // Calculate Column Gap
-        for (j in -5..5) {
+        for (j in -(sqrHeight/ scanSizeRatio)..(sqrHeight/ scanSizeRatio)) {
+            var start = true
             for (i in 0 until cleaned.cols()) {
-                cleaned.get(sqrHeight.toInt() / 2 + j, i, data)
+                cleaned.get(sqrHeight / 2 + j, i, data)
+                if (data[0].toInt()==0 && start)  //ignoring the initial gap at start of column
+                    continue
+                else start=false
+
                 if (ignore) {
                     if (data[0].toInt() == 0)
                         ignore = false
@@ -249,9 +285,12 @@ constructor() {
                     ignore = true
                 }
             }
+//            println()
         }
         if (noOfGaps == 0.0)
             return
+        columns = (noOfGaps/(sqrHeight/ scanSizeRatio*2+1)+1).roundToInt()
+        println("Scanned no of columns: $columns")
         cGap /= noOfGaps
 
         noOfGaps = 0.0
@@ -259,9 +298,14 @@ constructor() {
         ignore = true
 
         // Calculate Row Gap
-        for (j in -5..5) {
+        for (j in -(sqrWidth/ scanSizeRatio)..(sqrWidth/ scanSizeRatio)) {
+            var start = true
             for (i in 0 until cleaned.rows()) {
-                cleaned.get(i, sqrWidth.toInt() / 2 + j, data)
+                cleaned.get(i, sqrWidth / 2 + j, data)
+                if (data[0].toInt()==0 && start)  //ignoring the initial gap at start of row
+                    continue
+                else start=false
+
                 if (ignore) {
                     if (data[0].toInt() == 0)
                         ignore = false
@@ -280,14 +324,27 @@ constructor() {
                     ignore = true
                 }
             }
+//            println()
         }
         if (noOfGaps == 0.0)
             return
+        rows = (noOfGaps/(sqrWidth/ scanSizeRatio*2+1)+1).roundToInt()
+        println("Scanned no of rows: $rows")
         rGap /= noOfGaps
 
-        val sqrSide = Math.min(sqrHeight,sqrWidth)
-        columns = (fieldSize!!.width / (sqrWidth + cGap)).toInt()
-        rows = (fieldSize!!.height / (sqrHeight + rGap)).toInt()
+        val sqrSide = Math.max(sqrHeight,sqrWidth)
+//        columns = ((fieldSize!!.width+cGap) / (sqrSide + cGap)).roundToInt()
+//        rows = ((fieldSize!!.height+rGap) / (sqrSide + rGap)).roundToInt()
+
+//        var newRows = rows
+//        var newColumns = columns
+//        for(i in -1..1){
+//            if(Math.abs(fieldSize!!.height - (rows+i)*(sqrSide+rGap))<Math.abs(fieldSize!!.height-newRows*(sqrSide+rGap)))
+//                newRows = rows+i
+//
+//            if(Math.abs(fieldSize!!.width - (columns+i)*(sqrSide+cGap))<Math.abs(fieldSize!!.width-newColumns*(sqrSide+cGap)))
+//                newColumns = columns+i
+//        }
 
 //        when {
 //            Math.abs(columns - 30) < 2 -> columns = 30
@@ -304,12 +361,16 @@ constructor() {
 //            columns = 9
 
         current = Square()
-        current!!.size = Point(sqrHeight.toInt(), sqrWidth.toInt())
+        current!!.size = Point(sqrSide, sqrSide)
         current!!.colGap = (rangeX.size() - sqrSide * columns).toDouble() / columns
         current!!.rowGap = (rangeY.size() - sqrSide * rows).toDouble() / rows
 
         gridStates = Array(rows) { ByteArray(columns) }
         Imgcodecs.imwrite("Detected Field " + columns + "x" + rows + ".png", getScrnShot(fieldSize))
+        println("Square height: $sqrHeight")
+        println("Square width: $sqrWidth")
+        println("Square height scan size: "+(sqrHeight/ scanSizeRatio*2))
+        println("Square width scan size: "+(sqrWidth/ scanSizeRatio*2))
     }
 
     internal fun readAll() {
@@ -394,7 +455,7 @@ constructor() {
         val startY = y.toDouble() / rows * fieldSize!!.height + current!!.rowGap / 4
         val startX = x.toDouble() / columns * fieldSize!!.width + current!!.colGap / 4
         val crop = Rect(
-            startX.toInt(), startY.toInt(), current!!.size.x,
+            startX.roundToInt(), startY.roundToInt(), current!!.size.x,
             current!!.size.y
         )
 
@@ -572,9 +633,9 @@ constructor() {
         // Convert From grid dimensions to screen coordinates
         val curr = Point()
         curr.x =
-            (fieldSize!!.x.toDouble() + x.toDouble() / columns * fieldSize!!.width + (current!!.size.x / 2).toDouble()).toInt()
+            (fieldSize!!.x.toDouble() + x.toDouble() / columns * fieldSize!!.width + (current!!.size.x / 2).toDouble()).roundToInt()
         curr.y =
-            (fieldSize!!.y.toDouble() + y.toDouble() / rows * fieldSize!!.height + (current!!.size.y / 2).toDouble()).toInt()
+            (fieldSize!!.y.toDouble() + y.toDouble() / rows * fieldSize!!.height + (current!!.size.y / 2).toDouble()).roundToInt()
         return curr
     }
 
@@ -583,32 +644,6 @@ constructor() {
         return Math.max(Math.abs(x0 - x1), Math.abs(y0 - y1)) <= 1
     }
 
-    companion object {
-        private var random = Random()
-
-        // Associating Cells with Numbers
-        internal const val Num1: Byte = 0
-        internal const val Num2: Byte = 1
-        internal const val Num3: Byte = 2
-        internal const val Num4: Byte = 3
-        internal const val Num5: Byte = 4
-        internal const val Num6: Byte = 5
-        internal const val Num7: Byte = 6
-        internal const val Num8: Byte = 7
-        internal const val UnOpen: Byte = 8
-        private const val Open_Unknown: Byte = 9
-        internal const val Flag: Byte = 10
-        internal const val Question: Byte = 11
-        internal const val Open: Byte = 12
-
-        private fun angle(ds: DoubleArray, ds2: DoubleArray, ds3: DoubleArray): Double {
-            val dx1 = ds[0] - ds3[0]
-            val dy1 = ds[1] - ds3[1]
-            val dx2 = ds2[0] - ds3[0]
-            val dy2 = ds2[1] - ds3[1]
-            return (dx1 * dx2 + dy1 * dy2) / Math.sqrt((dx1 * dx1 + dy1 * dy1) * (dx2 * dx2 + dy2 * dy2) + 1e-10)
-        }
-    }
     private operator fun <T> Array<T>.get(index: Byte): T {
         return this[index.toInt()]
     }

@@ -40,13 +40,13 @@ object Interface {
             e.printStackTrace()
         }
 
-//        initialize()
-//        EventQueue.invokeLater { frame!!.isVisible = true }
-
-
         AI!!.initialize()
         AI!!.msMinesweeper.readAll()
         AI!!.msMinesweeper.printDifference()
+
+
+//        initialize()
+//        EventQueue.invokeLater { frame!!.isVisible = true }
         // Play until win
 //        while (true) {
 //            Thread.sleep(100)
